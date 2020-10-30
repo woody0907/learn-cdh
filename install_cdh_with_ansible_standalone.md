@@ -159,9 +159,8 @@ playbook-剧本，顾名思义就是按照指定的操作有序执行的脚本�
 
 #### Tasks list 和action介绍
 
-* Play的主体部分是task列表，task列表中的各任务按次序逐个在hosts中指定的主机上执行，即在所有主机上完成第一个任务后再开始第二个任务。
+* Playbook的主体部分是task列表，task列表中的各任务按次序逐个在hosts中指定的主机上执行，即在所有主机上完成第一个任务后再开始第二个任务。
 在运行playbook时（从上到下执行），如果一个host执行task失败，整个tasks都会回滚，修正playbook 中的错误，然后重新执行即可。
-Task的目的是使用指定的参数执行模块，而在模块参数中可以使用变量，模块执行时幂等的，这意味着多次执行是安全的，因为其结果一致。
 * 每一个task有一个名称name，这样在运行playbook时，从其输出的任务执行信息中可以很好的辨别出是属于哪一个task的。如果没有定义name，‘action’的值将会用作输出信息中标记特定的task。
 * 定义一个task，常见的格式:”module: options” 例如：yum: name=httpd
 * ansible的自带模块中，command模块和shell模块无需使用key=value格式
@@ -186,6 +185,11 @@ Task的目的是使用指定的参数执行模块，而在模块参数中可以�
  ```
 
 #### 变量介绍
+变量通过一处定义多处使用的方法减少了脚本中的重复代码，也通过一处修改多处生效的方法减少了程序多处修改带来的出错风险。
+1. playbook文件中定义变量
+2. 独立的变量YAML文件中定义
+
+更详细的变量使用方法可以参考[Ansible变量](https://www.cnblogs.com/mauricewei/p/10054300.html)
 
 
 
@@ -196,5 +200,130 @@ andlers也是一些task的列表，和一般的task并没有什么区别。
 不管有多少个通知者进行了notify，等到play中的所有task执行完成之后，handlers也只会被执行一次
 ![handlers](images/playbook-handler.png)
 
+#### templates模板介绍
 
+在实际的工作中由于每台服务器的环境配置都可能不同，但是往往很多服务的配置文件都需要根据服务器环境进行不同的配置，比如Nginx最大进程数、Redis最大内存等。为了解决这个问题可以使用Ansible的template模块，该模块和copy模块作用基本一样，都是把管理端的文件复制到客户端主机上，但是区别在于template模块可以通过变量来获取配置值，支持多种判断、循环、逻辑运算等，而copy只能原封不动的把文件内容复制过去。
+
+```
+mkdir templates
+cd templates
+vi say_hello.j2
+
+Hello,{{compony_name}}
+```
+
+```
+vi test_template_play.yml
+
+- name: say hi template
+  hosts: cdh_group
+  vars:
+    - compony_name: Merit
+  tasks:
+    - name: say hello
+      template: src=say_hello.j2 dest=/opt/say_hello.txt
+```
+
+#### 循环迭代
+当有需要重复性执行的任务时，可使用迭代机制；对迭代项的引用，ansible有固定不变的变量，名为“item”;要在task中使用with_items给定要迭代的元素列表，列表格式可以为字符串、字典
+
+```
+  - name: install chkconfig
+    yum: name=chkconfig state=present
+  - name: install bind-utils
+    yum: name=bind-utils state=present
+  - name: install psmisc
+    yum: name=psmisc state=present
+  - name: install libxslt
+    yum: name=libxslt state=present
+  - name: install zlib
+    yum: name=zlib state=present
+  - name: install sqlite
+    yum: name=sqlite state=present
+  - name: install cyrus-sasl-plain
+    yum: name=cyrus-sasl-plain state=present
+  - name: install cyrus-sasl-gssapi
+    yum: name=cyrus-sasl-gssapi state=present
+  - name: install fuse
+    yum: name=fuse state=present
+  - name: install fuse-libs
+    yum: name=fuse-libs state=present
+  - name: install redhat-lsb
+    yum: name=redhat-lsb state=present
+```
+
+```
+  - name: install packages
+    yum: name={{ item }} state=present
+    with_items:
+      - chkconfig
+      - bind-utils
+      - psmisc
+      - libxslt
+      - zlib
+      - sqlite
+      - cyrus-sasl-plain
+      - cyrus-sasl-gssapi
+      - fuse
+      - fuse-libs
+      - redhat-lsb
+```
+#### Tags介绍
+
+在一个playbook中，我们一般会定义很多个task，如果我们只想执行其中的某一个task或多个task时就可以使用tags标签功能了,playbook还提供了一个特殊的tags为always。作用就是当使用always当tags的task时，无论执行哪一个tags时，定义有always的tags都会执行
+
+```
+vi test_template_play.yml
+
+- name: say hi template
+  hosts: cdh_group
+  vars:
+    - compony_name: Merit
+    - fellow_name: Woody
+  tasks:
+    - name: say hello to company
+      template: src=say_hello.j2 dest=/opt/say_hello_to_company.txt
+    - name: say hello to fellow
+      template: src=say_hello_to_fellow.j2 dest=/opt/say_hello_to_fellow.txt
+      tags:
+      - fellow
+```
+
+### CM安装Playbook
+
+```
+ansible-playbook cdh-single-install.yml
+ansible-playbook cdh-single-start.yml
+
+tail -f /var/log/cloudera-scm-server/cloudera-scm-server.log
+```
+
+
+```
+sha1sum CDH-6.1.1-1.cdh6.1.1.p0.875250-el7.parcel| cut -d ' ' -f 1 > CDH-6.1.1-1.cdh6.1.1.p0.875250-el7.parcel.sha
+```
+
+## 回顾总结
+
+### 安装过程
+
+1. 准备一台电脑安装Ansible（推荐Linux）
+2. 在Ansible所在电脑上拷贝所需的离线安装包和Playbook脚本
+3. 准备一台安装Centos7的虚拟机，设置虚拟机的yum源和hostname，hosts,（单节点内存建议8G以上）
+4. 在Ansible的Invertory的文件中配置虚拟机ip，用户名和密码
+5. ansible-playbook cdh-single-install.yml
+6. ansible-playbook cdh-single-start.yml 
+7. http://虚拟机ip:7180,进入安装界面，完成界面化安装
+
+
+### 过程优化
+
+1. 使用迭代循环精简playbook
+2. 使用变量替换重复出现的值
+
+### 集群部署
+[ansible集群部署CDH](https://github.com/LEUNGUU/ansible-cdh)
+
+
+### 资料汇总
 
